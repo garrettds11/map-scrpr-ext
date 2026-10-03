@@ -130,6 +130,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const parts = split(features, { maxFeatures: +a['max-features'], maxBytes: +a['max-mb'] * 1024 * 1024 });
   const dir = a['out-dir'] || path.dirname(a.in);
   const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 13);
+  if (parts.length) fs.mkdirSync(dir, { recursive: true });
   const files = parts.map((part, i) => {
     const file = path.join(dir, `import_${stamp}${parts.length > 1 ? `_part${i + 1}of${parts.length}` : ''}.geojson`);
     fs.writeFileSync(file, JSON.stringify({ type: 'FeatureCollection', features: part })); return file;
