@@ -130,6 +130,22 @@ node scripts/join.mjs --pins pins.geojson --details raw_responses.ndjson --url '
   also keeps pins that have no detail. If an id appears more than once, the last one in the file wins.
 - It prints how many pins and details it read and how many matched. Check that it is not zero before using the file.
 
+`scripts/to-datamodel.mjs` turns a normalized GeoJSON export into import-ready GeoJSON for the GeoVivé data model, which
+allows only a fixed set of feature properties and says specifics go in `description`. It makes no network requests.
+
+```
+node scripts/to-datamodel.mjs --in normalized.geojson [--name-fallback "Place {id}"] [--include-contact] [--source label]
+```
+
+- Each output feature has exactly `name`, `category` (always `location`), `description`, `source` and `externalId`.
+  The description is Markdown: address, categories, links and rating, then a short **Details** list (up to 15) of the
+  other fields, including any joined details.
+- `name` is required by the data model, so features with no name are skipped and counted. `--name-fallback` keeps them
+  under a placeholder name, where `{id}` is the source id.
+- Phone and email are left out unless you pass `--include-contact`.
+- Output is split into parts of at most 20,000 features and about 45 MB (`--max-features`, `--max-mb`) to fit the
+  importer's limits. Features without geometry are skipped. Names over 200 characters and descriptions over 5,000 are cut.
+
 ## Add a site
 
 Unknown sites already work through the sniffer and heuristics. For a site with a known endpoint, create
@@ -166,8 +182,8 @@ lib/db.js            IndexedDB access, streaming, GeoJSON conversion
 lib/util.js          coordinate parsing and helpers
 sites/               optional per-site rules and the registry (index.js, example.js)
 popup/               popup UI, per-site enable, exports
-scripts/             offline tools (join.mjs)
-test/                run-generic.mjs, run-join.mjs, run-scripts.mjs, run-har.mjs
+scripts/             offline tools (join.mjs, to-datamodel.mjs)
+test/                run-generic.mjs, run-join.mjs, run-scripts.mjs, run-to-datamodel.mjs, run-har.mjs
 ```
 
 ## Tests
@@ -178,6 +194,7 @@ Requires Node 18 or newer. No dependencies.
 node test/run-generic.mjs                 # 15 synthetic unknown-site shapes (GeoJSON, ArcGIS, Leaflet-style, details, ...)
 node test/run-join.mjs                    # detail-to-pin joining, including colliding ids
 node test/run-scripts.mjs                 # scripts/join.mjs
+node test/run-to-datamodel.mjs            # scripts/to-datamodel.mjs
 node test/run-har.mjs a.har b.har         # replay captured HAR files; checks native == what the site sent
 ```
 
