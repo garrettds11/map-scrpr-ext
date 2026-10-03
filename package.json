@@ -1,0 +1,6 @@
+{
+  "name": "map_scrpr_ext",
+  "private": true,
+  "type": "module",
+  "description": "Ephemeral Chrome MV3 extension: passive map data capture. package.json only exists so Node treats the .js files as ES modules for the tests."
+}

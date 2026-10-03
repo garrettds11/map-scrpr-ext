@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font: 13px/1.4 system-ui, sans-serif; width: 420px; margin: 0; padding: 12px; color: #1b1f24; }
+  h1 { font-size: 14px; margin: 0 0 8px; }
+  h2 { font-size: 12px; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: .04em; color: #556; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  td, th { text-align: left; padding: 2px 4px; border-bottom: 1px solid #e3e6ea; word-break: break-all; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  canvas { width: 100%; height: 150px; background: #eef3f8; border: 1px solid #d5dbe1; margin: 6px 0; }
+  button { margin: 2px 4px 2px 0; padding: 4px 8px; cursor: pointer; }
+  .muted { color: #667; font-size: 12px; }
+  #site { border: 1px solid #d5dbe1; border-radius: 4px; padding: 6px 8px; background: #f7f9fb; }
+  #msg { margin-top: 6px; color: #0a6; min-height: 1em; }
+</style>
+</head>
+<body>
+  <h1>&#x1F5FA;&#xFE0F; Map Scrpr — capture</h1>
+
+  <h2>This site</h2>
+  <div id="site"></div>
+
+  <h2>Captured records</h2>
+  <table id="tbl"><thead><tr><th>Source · kind</th><th class="n">Records</th></tr></thead><tbody></tbody></table>
+  <div class="muted" id="info"></div>
+  <div id="warn" style="color:#b40;font-size:12px;margin:4px 0"></div>
+  <canvas id="cov" width="360" height="180" title="Captured points (equirectangular)"></canvas>
+
+  <h2>Export</h2>
+  <div>
+    <button id="norm"><b>Normalized GeoJSON</b> (all sources, one schema)</button>
+    <button id="geo">Native GeoJSON per kind</button>
+    <button id="ndjson">Native records (.ndjson per kind)</button>
+    <button id="raw">Raw responses (.ndjson)</button>
+  </div>
+  <h2>Maintenance</h2>
+  <div>
+    <button id="renorm">Re-normalize all</button>
+    <button id="clear">Clear</button>
+  </div>
+  <div class="muted">Native records are stored exactly as the sites send them. The normalized view is derived from them (and can be recomputed); each value notes which native field it came from. Passive: nothing is requested for you.</div>
+  <div id="msg"></div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

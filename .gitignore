@@ -1,0 +1,9 @@
+# Never commit captured data, HARs or credentials
+*.har
+*.ndjson
+*.geojson
+raw_responses_*
+normalized_*
+node_modules/
+.env
+private/
