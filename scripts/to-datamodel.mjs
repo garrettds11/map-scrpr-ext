@@ -8,7 +8,11 @@
 //   --out-dir DIR         where to write (default: next to the input)
 //   --source LABEL        value for the `source` property (default: the record's source host)
 //   --name-fallback TPL   name for features that have none, e.g. "Place {id}" ({id} = the source id).
-//                         Without it, features with no name are skipped, because `name` is required.
+//                         Without it (and without a matching --name-kind), features with no name are skipped,
+//                         because `name` is required.
+//   --name-kind MATCH=TPL name template for features whose `kind` contains MATCH (case-insensitive); repeat it for
+//                         several kinds, e.g. --name-kind "/shops/=Shop {id}" --name-kind "/sites/=Site {id}".
+//                         The first match wins; --name-fallback covers the rest.
 //   --include-contact     also write phone and email into the description (default: left out)
 //   --max-features N      split the output into parts of at most N features (default: 20000, the import limit)
 //   --max-mb N            ...and at most about N MB per part (default: 45, the import limit is 50)
@@ -45,7 +49,12 @@ export function toFeature(f, opts = {}) {
   const p = f.properties || {};
   const notes = [];
   let name = typeof p.name === 'string' ? p.name.trim() : '';
-  if (!name && opts.nameFallback) name = opts.nameFallback.replace(/\{id\}/g, String(p.source_id ?? '')).trim();
+  let fromFallback = false;
+  if (!name) {
+    const kind = String(p.kind || '').toLowerCase();
+    const tpl = (opts.nameKinds || []).find((k) => kind.includes(k.match.toLowerCase()))?.template ?? opts.nameFallback;
+    if (tpl) { name = tpl.replace(/\{id\}/g, String(p.source_id ?? '')).trim(); fromFallback = !!name; }
+  }
   if (!name) return { skip: 'no name' };
   if (!f.geometry || !f.geometry.type) return { skip: 'no geometry' };
   if (name.length > LIMITS.name) { name = clip(name, LIMITS.name); notes.push('name'); }
@@ -81,17 +90,18 @@ export function toFeature(f, opts = {}) {
   const source = opts.source || p.source;
   if (source) props.source = clip(String(source), LIMITS.source);
   if (p.source_id != null) props.externalId = clip(`${p.kind ? `${p.kind}:` : ''}${p.source_id}`, LIMITS.externalId);
-  return { feature: { type: 'Feature', geometry: f.geometry, properties: props }, notes };
+  return { feature: { type: 'Feature', geometry: f.geometry, properties: props }, notes, fromFallback };
 }
 
 export function convert(collection, opts = {}) {
-  const stats = { in: 0, written: 0, skipped_no_name: 0, skipped_no_geometry: 0, truncated_description: 0, truncated_name: 0 };
+  const stats = { in: 0, written: 0, skipped_no_name: 0, skipped_no_geometry: 0, truncated_description: 0, truncated_name: 0, placeholder_names: 0 };
   const features = [];
   for (const f of collection.features || []) {
     stats.in++;
     const r = toFeature(f, opts);
     if (r.skip === 'no name') { stats.skipped_no_name++; continue; }
     if (r.skip === 'no geometry') { stats.skipped_no_geometry++; continue; }
+    if (r.fromFallback) stats.placeholder_names++;
     if (r.notes.includes('description')) stats.truncated_description++;
     if (r.notes.includes('name')) stats.truncated_name++;
     features.push(r.feature); stats.written++;
@@ -112,11 +122,16 @@ export function split(features, { maxFeatures = 20000, maxBytes = 45 * 1024 * 10
 }
 
 function parseArgs(argv) {
-  const a = { 'max-features': 20000, 'max-mb': 45 };
+  const a = { 'max-features': 20000, 'max-mb': 45, nameKinds: [] };
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
     if (t === '--include-contact') a.includeContact = true;
     else if (t === '-h' || t === '--help') a.help = true;
+    else if (t === '--name-kind') {
+      const v = argv[++i] ?? ''; const eq = v.indexOf('=');
+      if (eq < 1 || eq === v.length - 1) throw new Error(`--name-kind needs MATCH=TEMPLATE, got: ${v}`);
+      a.nameKinds.push({ match: v.slice(0, eq), template: v.slice(eq + 1) });
+    }
     else if (['--in', '--out-dir', '--source', '--name-fallback', '--max-features', '--max-mb'].includes(t)) a[t.slice(2)] = argv[++i];
     else throw new Error(`unknown argument: ${t}`);
   }
@@ -124,9 +139,10 @@ function parseArgs(argv) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const a = parseArgs(process.argv.slice(2));
+  let a;
+  try { a = parseArgs(process.argv.slice(2)); } catch (e) { console.error(e.message); process.exit(1); }
   if (a.help || !a.in) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').filter((l) => l.startsWith('//')).map((l) => l.slice(3)).join('\n')); process.exit(a.help ? 0 : 1); }
-  const { features, stats } = convert(JSON.parse(fs.readFileSync(a.in, 'utf8')), { source: a.source, nameFallback: a['name-fallback'], includeContact: a.includeContact });
+  const { features, stats } = convert(JSON.parse(fs.readFileSync(a.in, 'utf8')), { source: a.source, nameFallback: a['name-fallback'], nameKinds: a.nameKinds, includeContact: a.includeContact });
   const parts = split(features, { maxFeatures: +a['max-features'], maxBytes: +a['max-mb'] * 1024 * 1024 });
   const dir = a['out-dir'] || path.dirname(a.in);
   const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 13);
@@ -136,7 +152,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     fs.writeFileSync(file, JSON.stringify({ type: 'FeatureCollection', features: part })); return file;
   });
   console.error(`read ${stats.in} features -> wrote ${stats.written}`);
-  if (stats.skipped_no_name) console.error(`  skipped, no name: ${stats.skipped_no_name} (use --name-fallback "Place {id}" to keep them)`);
+  if (stats.skipped_no_name) console.error(`  skipped, no name: ${stats.skipped_no_name} (use --name-fallback "Place {id}" or --name-kind to keep them)`);
+  if (stats.placeholder_names) console.error(`  placeholder names used: ${stats.placeholder_names}`);
   if (stats.skipped_no_geometry) console.error(`  skipped, no geometry: ${stats.skipped_no_geometry}`);
   if (stats.truncated_description) console.error(`  descriptions cut to ${LIMITS.description} characters: ${stats.truncated_description}`);
   if (stats.truncated_name) console.error(`  names cut to ${LIMITS.name} characters: ${stats.truncated_name}`);

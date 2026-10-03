@@ -31,6 +31,19 @@ t('no name: skipped by default, kept with --name-fallback; no geometry always sk
   const b = convert(c, { nameFallback: 'Place {id}' }); assert.equal(b.stats.written, 2); assert.equal(b.features[0].properties.name, 'Place 5');
 });
 
+t('--name-kind: per-kind placeholder names; first match wins; fallback covers the rest; named features untouched', () => {
+  const mk = (kind, id, name = null) => norm({ kind: `api.example.org/${kind}/map/`, source_id: id, name });
+  const c = { type: 'FeatureCollection', features: [mk('shops', '1'), mk('sites', '2'), mk('sites', '3', 'Real Name'), mk('other', '4')] };
+  const nameKinds = [{ match: '/shops/', template: 'Shop {id}' }, { match: '/SITES/', template: 'Site {id}' }];
+  const a = convert(c, { nameKinds });
+  assert.deepEqual(a.features.map((f) => f.properties.name), ['Shop 1', 'Site 2', 'Real Name']);   // 'other' skipped: no template
+  assert.equal(a.stats.skipped_no_name, 1); assert.equal(a.stats.placeholder_names, 2);
+  const b = convert(c, { nameKinds, nameFallback: 'Place {id}' });
+  assert.deepEqual(b.features.map((f) => f.properties.name), ['Shop 1', 'Site 2', 'Real Name', 'Place 4']);
+  const first = convert(c, { nameKinds: [{ match: 'map', template: 'First {id}' }, { match: '/shops/', template: 'Never {id}' }] });
+  assert.equal(first.features[0].properties.name, 'First 1');
+});
+
 t('joined details become a short Details list; duplicates of name/categories and ids are dropped; nested data is skipped', () => {
   const p = { attributes: { details: { 'api.example.org/spots#results': { id: 5, title: 'Harbor Cafe', types: ['food', 'historic'], maximumDepth: 30, fish: ['cod', 'bass'], images: [{ u: 'x' }], nested: { a: 1 } } } } };
   const d = toFeature(norm(p)).feature.properties.description;

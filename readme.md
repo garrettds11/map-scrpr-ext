@@ -141,7 +141,10 @@ node scripts/to-datamodel.mjs --in normalized.geojson [--name-fallback "Place {i
   The description is Markdown: address, categories, links and rating, then a short **Details** list (up to 15) of the
   other fields, including any joined details.
 - `name` is required by the data model, so features with no name are skipped and counted. `--name-fallback` keeps them
-  under a placeholder name, where `{id}` is the source id.
+  under a placeholder name, where `{id}` is the source id. `--name-kind MATCH=TEMPLATE` sets a placeholder per kind of
+  record (it matches against the record's `kind`, case-insensitive, and can be repeated; the first match wins), so
+  different record types get accurate placeholders: `--name-kind "/cafes/=Cafe {id}" --name-kind "/parks/=Park {id}"`.
+  Run `node scripts/to-datamodel.mjs --help` to see the kinds in a file's `kind` property, or open the popup's kind list.
 - Phone and email are left out unless you pass `--include-contact`.
 - Output is split into parts of at most 20,000 features and about 45 MB (`--max-features`, `--max-mb`) to fit the
   importer's limits. Features without geometry are skipped. Names over 200 characters and descriptions over 5,000 are cut.
