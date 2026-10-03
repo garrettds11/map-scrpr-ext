@@ -7,9 +7,9 @@ It is **passive**: it only records data a page already loads while you use the m
 of its own. Every record is kept in the site's **native format** and also gets a **normalized view** in
 one uniform schema, so the next unknown site lands in the same shape.
 
-> **Status:** early and ephemeral. The router, sniffer and normalizer are tested against captured traffic from real
-> map sites plus synthetic fixtures for other common map-data shapes. It has not yet been exercised in a long live Chrome
-> session, so start small and check the popup's counts.
+> **Status:** v1.0, early. The router, sniffer and normalizer are tested against captured traffic from real map sites
+> plus synthetic fixtures for other common map-data shapes, and it has captured several thousand points in a live Chrome
+> session. It has not been run for long sessions or on many sites, so start small and check the popup's counts.
 
 ## Quick start
 
@@ -21,6 +21,9 @@ one uniform schema, so the next unknown site lands in the same shape.
    the page request the data for the area you are looking at, and that is what gets captured (see
    [What gets captured](#what-gets-captured)).
 4. Click the toolbar icon to see counts per source, a coverage map of captured points, and the export buttons.
+   The popup shows the counts as of when you opened it, so close and reopen it to refresh.
+
+Capture starts only on pages that load **after** you enable the site. If the counts stay at zero, reload the tab.
 
 ## What gets captured
 
@@ -29,9 +32,9 @@ Only what the page itself requests, so what you see is what you get:
 - **Panning and zooming** is usually enough. Most maps load the pins for the visible area as it changes. Areas you never
   looked at are not captured.
 - **Opening items (clicking a pin, scrolling a results list)** only matters on sites that send a pin's position first
-  and fetch its full details separately, on demand. Whether a site does that varies. If exports look thin, for example
-  records with coordinates but little else, open a few items and see whether more detail arrives. If it does, details
-  are captured only for the items whose details the page loaded.
+  and fetch its full details separately. Whether a site does that varies. If exports look thin, for example records
+  with coordinates but little else, turn on **Learn mode**, open a few items and look in the raw archive. Details are
+  captured only for the items whose details the page loaded.
 - Nothing is clicked or requested for you.
 
 ## How it works
@@ -77,8 +80,9 @@ Each record has a `kind` that says which endpoint and response shape it came fro
 never mix. A site rule declares its own kinds. For sites without a rule, the kind is built from the request path and
 where the points sit in the JSON, for example `api.example.com/v2/places/search#data.results`.
 
-If a site sends a pin's position in one response and its details in another, they are stored as separate kinds, each
-with its own native schema. Join them on `id` later.
+If a site sends a pin's position in one response and its details in another, the two have different schemas. Pins with
+coordinates become records. Detail responses that have **no coordinates** are not turned into records: they are kept
+only in the raw archive, and only when **Learn mode** is on. Join them to the pins on `id` afterwards.
 
 ## Normalized schema
 
@@ -127,6 +131,7 @@ fallbacks, or `{from, map}`); `sites/example.js` is a working example. Rules you
 
 ```
 manifest.json        MV3 manifest; sites are enabled one at a time via optional permissions
+icons/               toolbar and extension icons
 hook.js              page-world fetch/XHR wrapper (adds no requests)
 bridge.js            relays page messages to the background worker
 background.js        routes captures, enforces the archive budget, updates the badge
@@ -153,12 +158,14 @@ node test/run-har.mjs a.har b.har         # replay captured HAR files; checks na
 
 - Only JSON over `fetch` and XHR. Not handled: vector tiles (`.pbf`), WebSockets, data embedded in the page HTML or
   script tags, and Google Maps' own protobuf and tiles.
-- Records with no coordinates are kept but have `geometry: null`.
+- The generic sniffer only stores items that have coordinates. Detail responses without coordinates are kept only in
+  the raw archive under Learn mode, so they are not in the GeoJSON exports. A site rule can store records with
+  `geometry: null`.
 - An `[a,b]` coordinate array with no hint in its key is assumed to be `[lng,lat]`; `meta.coord_note` flags these.
 - Coverage is whatever the page loads: the map area you view, plus any items you open on sites that load details on
   demand. A site changing its API shape may need a new profile.
 - Responses the site rules and the sniffer do not recognise are only kept in **Learn mode**, so an unfamiliar detail
-  endpoint can be missed until you turn it on and look at the raw archive.
+  endpoint can be missed until you turn it on and look at the raw archive. Turn it on before you start panning.
 
 ## Privacy and terms
 
