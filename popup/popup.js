@@ -1,5 +1,6 @@
 import { getAllRecords, countResponses, streamStore, clearAll, recordToFeature, recordToNormFeature, updateAllRecords } from '../lib/db.js';
 import { normalizeFor } from '../lib/route.js';
+import { joinedNormFeatures, joinSummary } from '../lib/join.js';
 
 const $ = (id) => document.getElementById(id);
 const say = (t) => { $('msg').textContent = t; };
@@ -89,10 +90,11 @@ async function refresh() {
     const tr = document.createElement('tr'); tr.innerHTML = `<td>${k}</td><td class="n">${list.length}</td>`; tb.appendChild(tr);
   }
   if (!recs.length) tb.innerHTML = '<tr><td colspan="2" class="muted">Nothing captured yet — open a map page and pan around.</td></tr>';
-  const noCoords = recs.filter((r) => r.lat == null || r.lng == null).length;
+  const noCoords = recs.filter((r) => (r.lat == null || r.lng == null) && !r.meta?.detail).length;
+  const js = joinSummary(recs);
   const noNorm = recs.filter((r) => !r.norm).length;
   const mb = ((st.archiveBytes || 0) / 1048576).toFixed(1);
-  $('info').textContent = `${nResp} raw responses archived (~${mb} MB) · ${noCoords} records without coordinates${noNorm ? ` · ${noNorm} not yet normalized (use Re-normalize)` : ''}`;
+  $('info').textContent = `${nResp} raw responses archived (~${mb} MB) · ${noCoords} records without coordinates${js.detail ? ` · ${js.detail} detail records (${js.joined} joinable to pins by id)` : ''}${noNorm ? ` · ${noNorm} not yet normalized (use Re-normalize)` : ''}`;
   $('warn').textContent = [
     st.archiveFull ? 'Raw archive is full (300 MB): new raw responses are no longer archived; native records still are. Export, then Clear, to resume.' : '',
     st.lastError ? `Last error: ${st.lastError}` : '',
@@ -103,8 +105,10 @@ async function refresh() {
 // ---------- exports ----------
 $('norm').onclick = async () => {
   const recs = await getAllRecords();
-  save(`normalized_${stamp()}.geojson`, [JSON.stringify({ type: 'FeatureCollection', features: recs.map(recordToNormFeature) })]);
-  say(`Exported ${recs.length} normalized features from ${new Set(recs.map((r) => r.source)).size} source(s). Same property keys for every source.`);
+  const features = joinedNormFeatures(recs, recordToNormFeature);
+  const js = joinSummary(recs);
+  save(`normalized_${stamp()}.geojson`, [JSON.stringify({ type: 'FeatureCollection', features })]);
+  say(`Exported ${features.length} normalized features from ${new Set(recs.map((r) => r.source)).size} source(s). Same property keys for every source.${js.detail ? ` ${js.joined} of ${js.detail} detail records were joined to pins by id.` : ''}`);
 };
 $('geo').onclick = async () => {
   const groups = byKind(await getAllRecords());

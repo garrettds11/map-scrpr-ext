@@ -1,11 +1,13 @@
 import { routeCapture } from './lib/route.js';
-import { addResponse, putRecords, countRecords } from './lib/db.js';
+import { sourceFor } from './lib/sniff.js';
+import { addResponse, putRecords, countRecords, countBySource } from './lib/db.js';
 
 // Soft cap on the raw-response archive (characters ~ bytes). Past it, new raw responses are no longer
 // archived, but native records keep being captured. Export + Clear resets it.
 const ARCHIVE_BUDGET = 300 * 1024 * 1024;
 
 let queue = Promise.resolve();
+const hasRecords = new Set();   // sources already known to have records (avoids a lookup per response)
 
 async function setBadge() {
   const { lastError, archiveFull } = await chrome.storage.local.get(['lastError', 'archiveFull']);
@@ -29,7 +31,15 @@ async function handleCapture(msg) {
 
   // Decide what this response is. Anything that is neither a known site rule, nor contains map points,
   // nor on a site in learn mode is dropped here without ever being stored.
-  const res = routeCapture(msg, { learn: !!sites[origin]?.learn });
+  // Coordinate-less lists of items with ids ("details") are only kept once this source already has records, so
+  // sites that show no map data never get anything written (other than in Learn mode).
+  let details = false;
+  try {
+    const src = sourceFor(new URL(msg.page).hostname, new URL(msg.url));
+    details = hasRecords.has(src) || (await countBySource(src)) > 0;
+    if (details) hasRecords.add(src);
+  } catch {}
+  const res = routeCapture(msg, { learn: !!sites[origin]?.learn, details });
   if (!res.archive && !res.records.length) return;
 
   // 1) lossless raw archive, within budget

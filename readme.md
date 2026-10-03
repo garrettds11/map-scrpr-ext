@@ -7,7 +7,7 @@ It is **passive**: it only records data a page already loads while you use the m
 of its own. Every record is kept in the site's **native format** and also gets a **normalized view** in
 one uniform schema, so the next unknown site lands in the same shape.
 
-> **Status:** v1.0, early. The router, sniffer and normalizer are tested against captured traffic from real map sites
+> **Status:** v2.0, early. The router, sniffer and normalizer are tested against captured traffic from real map sites
 > plus synthetic fixtures for other common map-data shapes, and it has captured several thousand points in a live Chrome
 > session. It has not been run for long sessions or on many sites, so start small and check the popup's counts.
 
@@ -33,8 +33,8 @@ Only what the page itself requests, so what you see is what you get:
   looked at are not captured.
 - **Opening items (clicking a pin, scrolling a results list)** only matters on sites that send a pin's position first
   and fetch its full details separately. Whether a site does that varies. If exports look thin, for example records
-  with coordinates but little else, turn on **Learn mode**, open a few items and look in the raw archive. Details are
-  captured only for the items whose details the page loaded.
+  with coordinates but little else, open a few items or scroll the results list. Details are captured only for the
+  items whose details the page loaded, and they are joined to the pins on export (see below).
 - Nothing is clicked or requested for you.
 
 ## How it works
@@ -54,7 +54,10 @@ background worker decides what to keep:
 2. **Otherwise the generic point sniffer** looks for arrays or objects where most items have coordinates: GeoJSON
    features, `lat`/`lng`-style keys in any case or style, nested `location` objects, `[lat,lng]` or `[lng,lat]`
    arrays, `"lat,lng"` strings, WKT `POINT`, and ArcGIS `{attributes, geometry:{x,y}}`. Found points are kept.
-3. **Nothing found:** the response is discarded and never written to disk, unless **Learn mode** is on for that site.
+3. **Details:** a list of objects that have ids but no coordinates (titles, types and so on, the "details" half of a map
+   API) is kept as **detail records**, but only once the site already has map records, so a site with no map data
+   never gets anything written.
+4. **Nothing found:** the response is discarded and never written to disk, unless **Learn mode** is on for that site.
    Learn mode archives every JSON response from the site (except login, account, token, session and payment-style
    paths) so unknown endpoints can be studied.
 
@@ -80,9 +83,11 @@ Each record has a `kind` that says which endpoint and response shape it came fro
 never mix. A site rule declares its own kinds. For sites without a rule, the kind is built from the request path and
 where the points sit in the JSON, for example `api.example.com/v2/places/search#data.results`.
 
-If a site sends a pin's position in one response and its details in another, the two have different schemas. Pins with
-coordinates become records. Detail responses that have **no coordinates** are not turned into records: they are kept
-only in the raw archive, and only when **Learn mode** is on. Join them to the pins on `id` afterwards.
+If a site sends a pin's position in one response and its details in another, the two have different schemas, so they
+are stored as separate kinds. Detail records have `geometry: null` and `meta.detail: true`. On export, each detail kind
+is joined to the one pin kind of the same source whose ids it overlaps most (at least half of its ids), because
+unrelated endpoints can reuse the same ids. A detail that arrives before the site's first pins is not kept; reloading
+or panning again captures it.
 
 ## Normalized schema
 
@@ -94,18 +99,36 @@ image, url, rating, attributes{}`, plus `source, kind, source_id, first_seen, la
 Values are filled first from the site's declarative profile, then by generic key-name heuristics (case- and
 style-insensitive aliases, nested `address` and `location` objects, validators for email, URL and phone). Heuristic
 fills are marked `(heuristic)` in `_norm_from`. Site-specific extras that have no home in the uniform schema go in `attributes`,
-for example a `verified` flag or a list of related IDs.
+for example a `verified` flag or a list of related IDs. A joined detail is kept whole under
+`attributes.details[<detail kind>]`.
 
 ## Export
 
 From the popup:
 
-- **Normalized GeoJSON:** all sources in one file with identical property keys. This is the one to load into a dataset.
+- **Normalized GeoJSON:** all sources in one file with identical property keys, with joined details merged into their
+  pins (empty fields are filled from the detail, and `_norm_from` says so). This is the one to load into a dataset.
 - **Native GeoJSON per kind** and **native `.ndjson` per kind:** the sites' own fields untouched (GeoJSON adds one
-  `_capture` key with bookkeeping).
+  `_capture` key with bookkeeping). Detail kinds are separate files, not joined.
 - **Raw responses `.ndjson`:** the verbatim archive.
 
 Also: **Re-normalize all** and **Clear**.
+
+## Scripts
+
+`scripts/join.mjs` joins details onto pins offline, from exported files. It makes no network requests. Use it on
+exports from before details were captured, or when you want the native fields kept as they are.
+
+```
+node scripts/join.mjs --pins pins.geojson --details raw_responses.ndjson --url 'detail/endpoint' [--key id] [--all] [--out joined.geojson]
+```
+
+- `--pins`: GeoJSON (native or normalized export) or `.ndjson` of native objects with coordinates.
+- `--details`: a raw-responses `.ndjson` (select the detail responses with `--url`, a regex on the response URL), a
+  native `.ndjson`, or GeoJSON.
+- Output: one feature per matched pin, with the pin's properties plus `detail`, the detail object verbatim. `--all`
+  also keeps pins that have no detail. If an id appears more than once, the last one in the file wins.
+- It prints how many pins and details it read and how many matched. Check that it is not zero before using the file.
 
 ## Add a site
 
@@ -136,13 +159,15 @@ hook.js              page-world fetch/XHR wrapper (adds no requests)
 bridge.js            relays page messages to the background worker
 background.js        routes captures, enforces the archive budget, updates the badge
 lib/route.js         site rule -> sniffer -> normalizer
-lib/sniff.js         generic point detection for unknown sites
+lib/sniff.js         generic point and detail detection for unknown sites
+lib/join.js          joins detail records onto pins by id at export
 lib/normalize.js     uniform schema + heuristics
 lib/db.js            IndexedDB access, streaming, GeoJSON conversion
 lib/util.js          coordinate parsing and helpers
 sites/               optional per-site rules and the registry (index.js, example.js)
 popup/               popup UI, per-site enable, exports
-test/                run-generic.mjs, run-har.mjs
+scripts/             offline tools (join.mjs)
+test/                run-generic.mjs, run-join.mjs, run-scripts.mjs, run-har.mjs
 ```
 
 ## Tests
@@ -150,7 +175,9 @@ test/                run-generic.mjs, run-har.mjs
 Requires Node 18 or newer. No dependencies.
 
 ```
-node test/run-generic.mjs                 # 12 synthetic unknown-site shapes (GeoJSON, ArcGIS, Leaflet-style, ...)
+node test/run-generic.mjs                 # 15 synthetic unknown-site shapes (GeoJSON, ArcGIS, Leaflet-style, details, ...)
+node test/run-join.mjs                    # detail-to-pin joining, including colliding ids
+node test/run-scripts.mjs                 # scripts/join.mjs
 node test/run-har.mjs a.har b.har         # replay captured HAR files; checks native == what the site sent
 ```
 
@@ -158,9 +185,11 @@ node test/run-har.mjs a.har b.har         # replay captured HAR files; checks na
 
 - Only JSON over `fetch` and XHR. Not handled: vector tiles (`.pbf`), WebSockets, data embedded in the page HTML or
   script tags, and Google Maps' own protobuf and tiles.
-- The generic sniffer only stores items that have coordinates. Detail responses without coordinates are kept only in
-  the raw archive under Learn mode, so they are not in the GeoJSON exports. A site rule can store records with
-  `geometry: null`.
+- Points need coordinates. Coordinate-less lists are kept only as detail records, and only if each item has an id and
+  at least three fields, the list has at least three items, and the site already has map records. A single detail
+  object on its own (not in a list) is not captured as a detail; it is only in the raw archive under Learn mode.
+- Details join to pins by id within one source. If a site's detail ids do not match its pin ids, nothing joins; the
+  detail records are still exported natively.
 - An `[a,b]` coordinate array with no hint in its key is assumed to be `[lng,lat]`; `meta.coord_note` flags these.
 - Coverage is whatever the page loads: the map area you view, plus any items you open on sites that load details on
   demand. A site changing its API shape may need a new profile.

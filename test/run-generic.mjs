@@ -93,4 +93,27 @@ t('site rule beats heuristic; normalized shape identical across sources', () => 
   assert.equal(rec.native.title, 'Tom &amp; Co'); // native untouched
 });
 
+t('details: id lists without coordinates are kept only when asked, and flagged as detail', () => {
+  const body = { results: [1, 2, 3, 4].map((i) => ({ id: i, title: `Spot ${i}`, types: ['a'], depth: i })) };
+  const off = call('https://maps.example.org/api/spots/list?page=1', body);
+  assert.equal(off.records.length, 0); assert.equal(off.archive, false);
+  const on = call('https://maps.example.org/api/spots/list?page=1', body, undefined, { details: true });
+  assert.equal(on.records.length, 4); assert.equal(on.records[0].meta.detail, true); assert.equal(on.records[0].geometry, null);
+  assert.equal(on.records[0].lat, null); assert.deepEqual(on.records[0].native, body.results[0]); assert.equal(on.records[0].norm.name, 'Spot 1');
+  assert.equal(on.records[0].kind, 'maps.example.org/api/spots/list#results');
+});
+
+t('details: ignores lists that are too small, have no ids, or are config-like', () => {
+  const o = { details: true };
+  assert.equal(call('https://maps.example.org/a', { results: [{ id: 1, a: 1, b: 2 }, { id: 2, a: 1, b: 2 }] }, undefined, o).records.length, 0);   // only 2 items
+  assert.equal(call('https://maps.example.org/b', { results: [1, 2, 3].map((i) => ({ title: `t${i}`, a: 1, b: 2 })) }, undefined, o).records.length, 0); // no ids
+  assert.equal(call('https://maps.example.org/c', [1, 2, 3].map((i) => ({ id: i, a: 1 })), undefined, o).records.length, 0);                              // < 3 fields
+  assert.equal(call('https://maps.example.org/api/auth/session', { results: [1, 2, 3].map((i) => ({ id: i, a: 1, b: 2 })) }, undefined, o).records.length, 0); // login path
+});
+
+t('details: point records win over the detail path', () => {
+  const r = call('https://maps.example.org/pins', [1, 2, 3].map((i) => ({ id: i, lat: 10 + i, lng: 20 + i, name: 'n' })), undefined, { details: true });
+  assert.equal(r.records.length, 3); assert.ok(!r.records[0].meta.detail);
+});
+
 console.log(`\n${pass} tests passed`);

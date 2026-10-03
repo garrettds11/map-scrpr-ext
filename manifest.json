@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Map Scrpr (GeoVive capture)",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Passively records map data (pins, layers, details) that pages already load, keeps it in native form plus a uniform normalized view, and exports GeoJSON. Sites are enabled one at a time from the popup.",
   "permissions": [
     "storage",
